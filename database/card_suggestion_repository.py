@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
+from datetime import datetime
+
+from psycopg.types.json import Jsonb
 
 from database.init import DatabaseManager
 
@@ -31,26 +33,24 @@ class CardSuggestionRepository:
 
     def __init__(self, db_manager: DatabaseManager) -> None:
         self._db_manager = db_manager
-        self._initialize()
 
     def create(self, suggestion: CardSuggestion) -> None:
-        cards_json = json.dumps(
-            [{"id": card.id, "text": card.text} for card in suggestion.cards],
-            ensure_ascii=False,
-        )
+        cards_json = [
+            {"id": card.id, "text": card.text} for card in suggestion.cards
+        ]
         with self._db_manager.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO card_suggestions (
                     id, question, location, question_type, cards, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (
                     suggestion.id,
                     suggestion.question,
                     suggestion.location,
                     suggestion.question_type,
-                    cards_json,
+                    Jsonb(cards_json),
                     suggestion.created_at,
                 ),
             )
@@ -63,7 +63,7 @@ class CardSuggestionRepository:
                 SELECT id, question, location, question_type, cards,
                        created_at, selected_card_id, selected_at
                 FROM card_suggestions
-                WHERE id = ?
+                WHERE id = %s
                 """,
                 (suggestion_id,),
             ).fetchone()
@@ -73,7 +73,7 @@ class CardSuggestionRepository:
 
         cards = [
             SuggestedCard(id=value["id"], text=value["text"])
-            for value in json.loads(row["cards"])
+            for value in row["cards"]
         ]
         return CardSuggestion(
             id=row["id"],
@@ -81,9 +81,9 @@ class CardSuggestionRepository:
             location=row["location"],
             question_type=row["question_type"],
             cards=cards,
-            created_at=row["created_at"],
+            created_at=self._timestamp(row["created_at"]),
             selected_card_id=row["selected_card_id"],
-            selected_at=row["selected_at"],
+            selected_at=self._timestamp(row["selected_at"]),
         )
 
     def record_selection(
@@ -96,27 +96,15 @@ class CardSuggestionRepository:
             conn.execute(
                 """
                 UPDATE card_suggestions
-                SET selected_card_id = ?, selected_at = ?
-                WHERE id = ?
+                SET selected_card_id = %s, selected_at = %s
+                WHERE id = %s
                 """,
                 (card_id, selected_at, suggestion_id),
             )
             conn.commit()
 
-    def _initialize(self) -> None:
-        with self._db_manager.connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS card_suggestions (
-                    id TEXT PRIMARY KEY,
-                    question TEXT NOT NULL,
-                    location TEXT NOT NULL,
-                    question_type TEXT NOT NULL,
-                    cards TEXT NOT NULL,
-                    created_at DATETIME NOT NULL,
-                    selected_card_id TEXT,
-                    selected_at DATETIME
-                )
-                """
-            )
-            conn.commit()
+    @staticmethod
+    def _timestamp(value: datetime | str | None) -> str | None:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return value

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-
 import numpy as np
 
 from database.init import DatabaseManager
@@ -31,61 +29,44 @@ class LongTermMemorySearcher:
         if query_vector.ndim != 1 or query_vector.size == 0:
             raise ValueError("query_embedding must be a non-empty 1D vector")
 
-        query_norm = float(np.linalg.norm(query_vector))
-        if query_norm == 0.0:
+        if float(np.linalg.norm(query_vector)) == 0.0:
             raise ValueError("query_embedding must not be a zero vector")
 
+        vector = self._db_manager.vector_literal(query_vector)
         with self._db_manager.connect() as conn:
             rows = conn.execute("""
-                SELECT
-                    id,
-                    summary,
-                    source_text,
-                    embedding,
-                    place_name,
-                    speaker,
-                    event_time
-                FROM long_term_memory
-                WHERE embedding IS NOT NULL
-            """).fetchall()
+                WITH query AS (SELECT %s::vector AS embedding),
+                ranked AS (
+                    SELECT
+                        id,
+                        summary,
+                        source_text,
+                        place_name,
+                        speaker,
+                        event_time,
+                        1 - (embedding <=> query.embedding) AS similarity,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY source_text
+                            ORDER BY embedding <=> query.embedding
+                        ) AS source_rank
+                    FROM long_term_memory, query
+                    WHERE embedding IS NOT NULL
+                      AND 1 - (embedding <=> query.embedding) >= %s
+                )
+                SELECT *
+                FROM ranked
+                WHERE source_rank = 1
+                ORDER BY similarity DESC
+                LIMIT %s
+            """, (vector, minimum_similarity, limit)).fetchall()
 
-        scored_rows: list[tuple[float, sqlite3.Row]] = []
-        for row in rows:
-            memory_vector = np.frombuffer(row["embedding"], dtype=np.float32)
-            if memory_vector.shape != query_vector.shape:
-                continue
-
-            memory_norm = float(np.linalg.norm(memory_vector))
-            if memory_norm == 0.0:
-                continue
-
-            similarity = float(
-                np.dot(query_vector, memory_vector)
-                / (query_norm * memory_norm)
-            )
-            if similarity < minimum_similarity:
-                continue
-            scored_rows.append((similarity, row))
-
-        scored_rows.sort(key=lambda item: item[0], reverse=True)
-        top_rows: list[tuple[float, sqlite3.Row]] = []
-        seen_source_texts: set[str] = set()
-        for similarity, row in scored_rows:
-            source_text = row["source_text"]
-            if source_text in seen_source_texts:
-                continue
-            seen_source_texts.add(source_text)
-            top_rows.append((similarity, row))
-            if len(top_rows) == limit:
-                break
-
-        if not top_rows:
+        if not rows:
             return ""
 
         results: list[str] = []
-        for index, (similarity, row) in enumerate(top_rows, start=1):
+        for index, row in enumerate(rows, start=1):
             details = [
-                f"検索結果{index}（類似度: {similarity:.4f}）",
+                f"検索結果{index}（類似度: {row['similarity']:.4f}）",
                 f"要約: {row['summary']}",
                 f"内容: {row['source_text']}",
             ]

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import sqlite3
 from datetime import datetime
 
 import numpy as np
+from psycopg.types.json import Jsonb
 
 from database.init import DatabaseManager
 
@@ -16,7 +15,6 @@ class CardSelectionHistory:
 
     def __init__(self, db_manager: DatabaseManager) -> None:
         self._db_manager = db_manager
-        self._initialize()
 
     def record(
         self,
@@ -34,7 +32,9 @@ class CardSelectionHistory:
         if selected_card not in shown_cards:
             raise ValueError("selected_card must be included in shown_cards")
 
-        embedding = self._validate_embedding(question_embedding)
+        embedding = self._db_manager.vector_literal(
+            self._validate_embedding(question_embedding)
+        )
         with self._db_manager.connect() as conn:
             conn.execute(
                 """
@@ -45,15 +45,15 @@ class CardSelectionHistory:
                     selected_card,
                     question_embedding,
                     selected_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s::vector, %s)
                 """,
                 (
                     question,
                     location,
-                    json.dumps(shown_cards, ensure_ascii=False),
+                    Jsonb(shown_cards),
                     selected_card,
-                    embedding.tobytes(),
-                    datetime.now().isoformat(timespec="seconds"),
+                    embedding,
+                    datetime.now().astimezone(),
                 ),
             )
             conn.commit()
@@ -73,76 +73,43 @@ class CardSelectionHistory:
             raise ValueError("minimum_similarity must be between -1.0 and 1.0")
 
         query_vector = self._validate_embedding(question_embedding)
-        query_norm = float(np.linalg.norm(query_vector))
-        if query_norm == 0.0:
+        if float(np.linalg.norm(query_vector)) == 0.0:
             raise ValueError("question_embedding must not be a zero vector")
 
+        vector = self._db_manager.vector_literal(query_vector)
         with self._db_manager.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT location, selected_card, question_embedding, selected_at
-                FROM card_selection_history
-                WHERE question_embedding IS NOT NULL
-                ORDER BY selected_at DESC
-                """
+                WITH query AS (SELECT %s::vector AS embedding)
+                SELECT
+                    location,
+                    selected_card,
+                    1 - (question_embedding <=> query.embedding) AS similarity
+                FROM card_selection_history, query
+                WHERE 1 - (question_embedding <=> query.embedding) >= %s
+                  AND (%s = FALSE OR BTRIM(location) = BTRIM(%s))
+                ORDER BY
+                    (BTRIM(location) = BTRIM(%s)) DESC,
+                    question_embedding <=> query.embedding,
+                    selected_at DESC
+                """,
+                (
+                    vector,
+                    minimum_similarity,
+                    same_location_only,
+                    location,
+                    location,
+                ),
             ).fetchall()
 
-        scored_rows: list[tuple[bool, float, sqlite3.Row]] = []
-        for row in rows:
-            history_vector = np.frombuffer(
-                row["question_embedding"],
-                dtype=np.float32,
-            )
-            if history_vector.shape != query_vector.shape:
-                continue
-
-            history_norm = float(np.linalg.norm(history_vector))
-            if history_norm == 0.0:
-                continue
-
-            similarity = float(
-                np.dot(query_vector, history_vector)
-                / (query_norm * history_norm)
-            )
-            if similarity < minimum_similarity:
-                continue
-
-            same_location = row["location"].strip() == location.strip()
-            if same_location_only and not same_location:
-                continue
-            scored_rows.append((same_location, similarity, row))
-
-        scored_rows.sort(
-            key=lambda item: (item[0], item[1]),
-            reverse=True,
-        )
-
         selected_cards: list[str] = []
-        for _, _, row in scored_rows:
+        for row in rows:
             card = row["selected_card"]
             if card not in selected_cards:
                 selected_cards.append(card)
             if len(selected_cards) == limit:
                 break
         return selected_cards
-
-    def _initialize(self) -> None:
-        """カード選択履歴テーブルを作成する。"""
-        with self._db_manager.connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS card_selection_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    question TEXT NOT NULL,
-                    location TEXT NOT NULL,
-                    shown_cards TEXT NOT NULL,
-                    selected_card TEXT NOT NULL,
-                    question_embedding BLOB NOT NULL,
-                    selected_at DATETIME NOT NULL
-                )
-                """
-            )
-            conn.commit()
 
     @staticmethod
     def _validate_embedding(embedding: np.ndarray) -> np.ndarray:

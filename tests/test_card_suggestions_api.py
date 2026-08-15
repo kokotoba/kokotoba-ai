@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 
 from core.card_suggestion_service import CardSuggestionService
-from database.card_suggestion_repository import CardSuggestionRepository
-from database.init import DatabaseManager
+from database.card_suggestion_repository import CardSuggestion
 from router.card_suggestions import (
     CreateSuggestionRequest,
     SelectCardRequest,
@@ -40,21 +37,42 @@ class FakeChatManager:
         self.selections.append(selection)
 
 
+class FakeCardSuggestionRepository:
+    def __init__(self) -> None:
+        self.suggestions: dict[str, CardSuggestion] = {}
+
+    def create(self, suggestion: CardSuggestion) -> None:
+        self.suggestions[suggestion.id] = suggestion
+
+    def get(self, suggestion_id: str) -> CardSuggestion | None:
+        return self.suggestions.get(suggestion_id)
+
+    def record_selection(
+        self,
+        suggestion_id: str,
+        card_id: str,
+        selected_at: str,
+    ) -> None:
+        suggestion = self.suggestions[suggestion_id]
+        self.suggestions[suggestion_id] = CardSuggestion(
+            id=suggestion.id,
+            question=suggestion.question,
+            location=suggestion.location,
+            question_type=suggestion.question_type,
+            cards=suggestion.cards,
+            created_at=suggestion.created_at,
+            selected_card_id=card_id,
+            selected_at=selected_at,
+        )
+
+
 class CardSuggestionsApiTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary_directory = TemporaryDirectory()
-        db_manager = DatabaseManager.__new__(DatabaseManager)
-        db_manager.path = Path(self.temporary_directory.name) / "test.sqlite3"
-        db_manager.initialize()
-
         self.chat_manager = FakeChatManager()
         self.service = CardSuggestionService(
             self.chat_manager,  # type: ignore[arg-type]
-            CardSuggestionRepository(db_manager),
+            FakeCardSuggestionRepository(),  # type: ignore[arg-type]
         )
-
-    def tearDown(self) -> None:
-        self.temporary_directory.cleanup()
 
     def _create_suggestion(self):
         return create_suggestion(

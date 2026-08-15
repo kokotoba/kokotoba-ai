@@ -1,9 +1,10 @@
-import sqlite3
+import os
 from pathlib import Path
 from datetime import datetime, timedelta
 
-# Embedding計算用に追加
 import numpy as np
+import psycopg
+from psycopg.rows import dict_row
 from sentence_transformers import SentenceTransformer
 
 
@@ -13,85 +14,19 @@ class DatabaseManager:
         "models/sentence-transformers/multilingual-e5-small"
     )
 
-    def __init__(self):
-        self.path = Path("data/app.sqlite3")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.initialize()
+    def __init__(self, database_url: str | None = None):
+        self.database_url = database_url or os.getenv(
+            "DATABASE_URL",
+            "postgresql://kokotoba:kokotoba_dev_password@localhost:5432/kokotoba",
+        )
 
     def connect(self):
-        conn = sqlite3.connect(self.path)
-        conn.row_factory = sqlite3.Row
+        return psycopg.connect(self.database_url, row_factory=dict_row)
 
-        # SQLiteではデフォルトで無効なので有効化
-        conn.execute("PRAGMA foreign_keys = ON")
-
-        # Python/SQLiteのビルドが拡張ロードに対応している場合だけ利用する。
-        # 現在の検索処理はNumPyで計算するため、未対応環境でも動作できる。
-        enable_load_extension = getattr(conn, "enable_load_extension", None)
-        if callable(enable_load_extension):
-            try:
-                enable_load_extension(True)
-                import sqlite_vec
-
-                sqlite_vec.load(conn)
-            except (ImportError, sqlite3.Error):
-                pass
-            finally:
-                enable_load_extension(False)
-
-        return conn
-
-    def initialize(self):
-        with self.connect() as conn:
-            # 長期記憶 (embedding BLOB を追加)
-            conn.execute("""
-            CREATE TABLE IF NOT EXISTS long_term_memory (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-                summary TEXT NOT NULL,
-                source_text TEXT NOT NULL,
-                embedding BLOB,  -- 追加: ベクトルデータを保存するカラム
-
-                place_name TEXT,
-                latitude REAL,
-                longitude REAL,
-
-                speaker TEXT,
-                event_time DATETIME,
-
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """)
-
-            # タグ辞書
-            conn.execute("""
-            CREATE TABLE IF NOT EXISTS tags (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-                name TEXT NOT NULL UNIQUE,
-                description TEXT
-            )
-            """)
-
-            # 長期記憶とタグの対応
-            conn.execute("""
-            CREATE TABLE IF NOT EXISTS memory_tag_map (
-                memory_id INTEGER NOT NULL,
-                tag_id INTEGER NOT NULL,
-
-                PRIMARY KEY (memory_id, tag_id),
-
-                FOREIGN KEY (memory_id)
-                    REFERENCES long_term_memory(id)
-                    ON DELETE CASCADE,
-
-                FOREIGN KEY (tag_id)
-                    REFERENCES tags(id)
-                    ON DELETE CASCADE
-            )
-            """)
-            conn.commit()
+    @staticmethod
+    def vector_literal(embedding: np.ndarray) -> str:
+        vector = np.asarray(embedding, dtype=np.float32)
+        return "[" + ",".join(str(float(value)) for value in vector) + "]"
 
     def insert_demo_data(self):
         # 完全に独立したユニークなエピソードデータのリスト
@@ -223,18 +158,16 @@ class DatabaseManager:
                 event_time = (datetime.now(
                 ) - timedelta(days=record["days_ago"])).strftime("%Y-%m-%d %H:%M:%S")
 
-                # ベクトル（numpy配列）を float32 のバイナリデータに変換
-                emb_bytes = emb.astype(np.float32).tobytes()
-
                 # 1. long_term_memory の挿入 (embedding を追加)
                 cursor.execute("""
                         INSERT INTO long_term_memory
                         (summary, source_text, embedding, place_name, latitude, longitude, speaker, event_time)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s)
+                        RETURNING id
                     """, (
                     record["summary"],
                     record["source_text"],
-                    emb_bytes,           # 計算したバイナリデータをセット
+                    self.vector_literal(emb),
                     record.get("place_name"),
                     record.get("latitude"),
                     record.get("longitude"),
@@ -242,21 +175,24 @@ class DatabaseManager:
                     event_time
                 ))
 
-                memory_id = cursor.lastrowid
+                memory_id = cursor.fetchone()["id"]
 
                 # 2. タグの処理とマッピング
                 for tag_name in record["tags"]:
                     cursor.execute(
-                        "INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
+                        "INSERT INTO tags (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
+                        (tag_name,),
+                    )
                     cursor.execute(
-                        "SELECT id FROM tags WHERE name = ?", (tag_name,))
+                        "SELECT id FROM tags WHERE name = %s", (tag_name,))
                     tag_row = cursor.fetchone()
                     tag_id = tag_row["id"]
 
                     # 3. memory_tag_map の挿入
                     cursor.execute("""
                             INSERT INTO memory_tag_map (memory_id, tag_id)
-                            VALUES (?, ?)
+                            VALUES (%s, %s)
+                            ON CONFLICT DO NOTHING
                         """, (memory_id, tag_id))
 
             # トランザクションのコミット
