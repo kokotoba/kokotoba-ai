@@ -1,9 +1,14 @@
 from core.chat_manager import ChatManager
 from database.init import DatabaseManager
-from llm import LLMClient, LiteRTLMClient
+from llm import LLMClient
+
+# `uvicorn main:app` でAPIを起動できるよう公開する。
+from api import app
 
 
 def main() -> None:
+    from llm import LiteRTLMClient
+
     db_manager = DatabaseManager()
 
     llm_manager: LLMClient = LiteRTLMClient(

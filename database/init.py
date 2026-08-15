@@ -25,13 +25,19 @@ class DatabaseManager:
         # SQLiteではデフォルトで無効なので有効化
         conn.execute("PRAGMA foreign_keys = ON")
 
-        # sqlite-vecをロード
-        conn.enable_load_extension(True)
+        # Python/SQLiteのビルドが拡張ロードに対応している場合だけ利用する。
+        # 現在の検索処理はNumPyで計算するため、未対応環境でも動作できる。
+        enable_load_extension = getattr(conn, "enable_load_extension", None)
+        if callable(enable_load_extension):
+            try:
+                enable_load_extension(True)
+                import sqlite_vec
 
-        import sqlite_vec
-        sqlite_vec.load(conn)
-
-        conn.enable_load_extension(False)
+                sqlite_vec.load(conn)
+            except (ImportError, sqlite3.Error):
+                pass
+            finally:
+                enable_load_extension(False)
 
         return conn
 

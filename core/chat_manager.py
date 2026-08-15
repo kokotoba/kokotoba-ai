@@ -25,6 +25,8 @@ class ChatManager:
         self,
         user_input: str,
         user_location_input: str,
+        latitude: float = 0.0,
+        longitude: float = 0.0,
     ) -> list[str]:
         # 短期記憶に会話内容を保存
         self.memory_consolidator.record_short_term_memory(
@@ -32,8 +34,8 @@ class ChatManager:
                 conversation_text=user_input,
                 timestamp=datetime.now(),
                 location=Location(
-                    latitude=0.0,          # 必要に応じて実際の緯度
-                    longitude=0.0,         # 必要に応じて実際の経度
+                    latitude=latitude,
+                    longitude=longitude,
                     place_name=user_location_input,
                 ),
                 speaker="user",
@@ -59,6 +61,10 @@ class ChatManager:
             shown_cards=shown_cards,
             selected_card=selected_card,
         )
+
+    def classify_question(self, user_input: str) -> str:
+        """質問を発話カードの回答形式に分類する。"""
+        return self.rag.classify_question(user_input)
 
     def finish_session(self) -> None:
         return

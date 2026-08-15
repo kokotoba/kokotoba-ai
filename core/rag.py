@@ -42,7 +42,7 @@ class RAG:
         user_location: str,
     ) -> list[str]:
         """質問と文脈から、検証済みの発話カード候補を返す。"""
-        question_type = self._classify_question(user_input)
+        question_type = self.classify_question(user_input)
         base_cards = self._base_cards(question_type, user_input)
 
         expanded_query = self._query_expansion(user_input, user_location)
@@ -200,7 +200,7 @@ class RAG:
             user_input=user_input,
         )
 
-    def _classify_question(self, user_input: str) -> QuestionType:
+    def classify_question(self, user_input: str) -> QuestionType:
         """質問文をルールベースで回答形式に分類する。"""
         normalized = user_input.strip()
         if not normalized:
