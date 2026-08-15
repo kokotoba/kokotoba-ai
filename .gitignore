@@ -1,0 +1,28 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments
+.venv/
+venv/
+env/
+
+# OS junk
+.DS_Store
+
+# Runtime data
+data/app.sqlite3
+data/*.sqlite3
+data/models/*.litertlm
+data/models/*.litertlm.xnnpack_cache_*
+data/models/*.xnnpack_cache_*
+models/*.litertlm
+models/*.litertlm.xnnpack_cache_*
+models/*.xnnpack_cache_*
+models/sentence-transformers/
