@@ -14,9 +14,15 @@ from llm.llm_client import LLMClient
 class LiteRTLMClient(LLMClient):
     """LiteRT-LM の Engine と Conversation を内部に隠蔽するクライアント。"""
 
-    def __init__(self, model_path: str) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        *,
+        enable_speculative_decoding: bool = False,
+    ) -> None:
         """モデルファイルのパスを保持する。読み込みは start() で行う。"""
         self._model_path = Path(model_path).expanduser()
+        self._enable_speculative_decoding = enable_speculative_decoding
         self._engine: Any | None = None
         self._conversation: Any | None = None
 
@@ -38,13 +44,20 @@ class LiteRTLMClient(LLMClient):
             )
 
         try:
-            self._engine = litert_lm.Engine(str(self._model_path))
+            self._engine = litert_lm.Engine(
+                str(self._model_path),
+                enable_speculative_decoding=self._enable_speculative_decoding,
+            )
             self._conversation = self._engine.create_conversation()
         except Exception:
             self.close()
             raise
 
-    def generate(self, prompt: str) -> str:
+    def generate(
+        self,
+        prompt: str,
+        max_output_tokens: int | None = None,
+    ) -> str:
         """独立したConversationで同期生成し、テキストだけを返す。"""
         if not prompt.strip():
             raise ValueError("prompt must not be empty or whitespace only")
@@ -52,7 +65,10 @@ class LiteRTLMClient(LLMClient):
         self._ensure_started()
         conversation = self._conversation
         try:
-            response = conversation.send_message(prompt)
+            response = conversation.send_message(
+                prompt,
+                max_output_tokens=max_output_tokens,
+            )
             return self._extract_text(response)
         finally:
             # 内部プロンプトや前回の質問が次の推論へ混ざらないようにする。

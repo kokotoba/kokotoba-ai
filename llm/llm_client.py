@@ -13,7 +13,11 @@ class LLMClient(ABC):
         """モデルを読み込み、推論可能な状態にする。"""
 
     @abstractmethod
-    def generate(self, prompt: str) -> str:
+    def generate(
+        self,
+        prompt: str,
+        max_output_tokens: int | None = None,
+    ) -> str:
         """プロンプトからテキストを生成して返す。"""
 
     @abstractmethod

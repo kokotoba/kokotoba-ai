@@ -27,10 +27,15 @@ def create_app(
         from llm import LiteRTLMClient
 
         db_manager = DatabaseManager()
-        llm_client = LiteRTLMClient("models/gemma-4-E2B-it.litertlm")
+        llm_client = LiteRTLMClient(
+            "models/gemma-4-E2B-it.litertlm",
+            enable_speculative_decoding=True,
+        )
         llm_client.start()
+        chat_manager = ChatManager(db_manager, llm_client)
+        chat_manager.warm_up()
         app.state.card_suggestion_service = CardSuggestionService(
-            ChatManager(db_manager, llm_client),
+            chat_manager,
             CardSuggestionRepository(db_manager),
         )
         try:

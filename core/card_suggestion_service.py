@@ -45,6 +45,7 @@ class CardSuggestionService:
         location: str,
         latitude: float | None = None,
         longitude: float | None = None,
+        fast: bool = True,
     ) -> CardSuggestion:
         with self._lock:
             question_type = self._chat_manager.classify_question(question)
@@ -53,6 +54,7 @@ class CardSuggestionService:
                 location,
                 latitude=0.0 if latitude is None else latitude,
                 longitude=0.0 if longitude is None else longitude,
+                fast=fast,
             )
 
         suggestion = CardSuggestion(

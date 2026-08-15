@@ -12,7 +12,8 @@ def main() -> None:
     db_manager = DatabaseManager()
 
     llm_manager: LLMClient = LiteRTLMClient(
-        "models/gemma-4-E2B-it.litertlm"
+        "models/gemma-4-E2B-it.litertlm",
+        enable_speculative_decoding=True,
     )
 
     try:

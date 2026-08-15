@@ -39,6 +39,7 @@ class CreateSuggestionRequest(BaseModel):
 
     question: str = Field(min_length=1, max_length=1000)
     context: SuggestionContextRequest
+    mode: Literal["fast", "quality"] = "fast"
 
     @field_validator("question")
     @classmethod
@@ -117,6 +118,7 @@ def create_suggestion(
         location=payload.context.place_name,
         latitude=payload.context.latitude,
         longitude=payload.context.longitude,
+        fast=payload.mode == "fast",
     )
     return _to_response(suggestion)
 

@@ -32,6 +32,7 @@ class FakeChatManager:
         user_location_input: str,
         latitude: float = 0.0,
         longitude: float = 0.0,
+        fast: bool = False,
     ) -> list[str]:
         return ["はいお願いします", "いいえ大丈夫です"]
 

@@ -64,6 +64,7 @@ class CardSelectionHistory:
         location: str,
         limit: int = 3,
         minimum_similarity: float = 0.85,
+        same_location_only: bool = False,
     ) -> list[str]:
         """現在の質問に近い履歴から、過去に選ばれたカードを返す。"""
         if limit <= 0:
@@ -107,6 +108,8 @@ class CardSelectionHistory:
                 continue
 
             same_location = row["location"].strip() == location.strip()
+            if same_location_only and not same_location:
+                continue
             scored_rows.append((same_location, similarity, row))
 
         scored_rows.sort(

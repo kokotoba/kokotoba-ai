@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -24,6 +25,7 @@ class RAG:
 
     MAX_CARDS = 5
     MAX_CARD_LENGTH = 24
+    FAST_CACHE_SIZE = 128
 
     def __init__(
         self,
@@ -35,22 +37,20 @@ class RAG:
         self.embedding = Embedding()
         self.long_term_memory_searcher = LongTermMemorySearcher(db_manager)
         self.card_selection_history = CardSelectionHistory(db_manager)
+        self._fast_cards_cache: OrderedDict[
+            tuple[str, str],
+            list[str],
+        ] = OrderedDict()
 
     def generate_rag_response(
         self,
         user_input: str,
         user_location: str,
+        fast: bool = False,
     ) -> list[str]:
         """質問と文脈から、検証済みの発話カード候補を返す。"""
         question_type = self.classify_question(user_input)
         base_cards = self._base_cards(question_type, user_input)
-
-        expanded_query = self._query_expansion(user_input, user_location)
-        query_embedding = self.embedding.embed(expanded_query)
-        long_term_memory_result = self.long_term_memory_searcher.search(
-            query_embedding,
-            minimum_similarity=0.84,
-        )
 
         interaction_embedding = self._embed_interaction(
             user_input,
@@ -59,6 +59,25 @@ class RAG:
         previously_selected_cards = self.card_selection_history.find_relevant(
             interaction_embedding,
             user_location,
+            same_location_only=fast,
+        )
+
+        if fast:
+            generated_cards = self._generate_fast_cards_with_llm(
+                user_input=user_input,
+                user_location=user_location,
+            )
+            return self._merge_cards(
+                question_type=question_type,
+                base_cards=base_cards,
+                generated_cards=generated_cards,
+                previously_selected_cards=previously_selected_cards,
+                prefer_generated=True,
+            )
+
+        long_term_memory_result = self.long_term_memory_searcher.search(
+            interaction_embedding,
+            minimum_similarity=0.84,
         )
 
         generated_cards = self._generate_cards_with_llm(
@@ -80,6 +99,44 @@ class RAG:
         print(f"カード候補: {card_candidates}")
         return cards
 
+    def _generate_fast_cards_with_llm(
+        self,
+        *,
+        user_input: str,
+        user_location: str,
+    ) -> list[str]:
+        """短いプロンプトとキャッシュで汎用的な回答候補を生成する。"""
+        cache_key = (
+            re.sub(r"\s+", "", user_input),
+            re.sub(r"\s+", "", user_location),
+        )
+        cached_cards = self._fast_cards_cache.get(cache_key)
+        if cached_cards is not None:
+            self._fast_cards_cache.move_to_end(cache_key)
+            return list(cached_cards)
+
+        prompt = f"""
+あなたは発話支援アプリです。相手の質問に本人がそのまま答える、自然で短い
+日本語の候補を3つ作ってください。質問の言い換えや質問返しは禁止です。
+現在地は状況の参考だけにし、未確認の具体的事実は作らないでください。
+各候補は24文字以内、重複なし。次のJSONだけを出力してください。
+{{"cards":["候補1","候補2","候補3"]}}
+
+質問: {user_input}
+現在地: {user_location}
+""".strip()
+        response = self.llm_client.generate(
+            prompt,
+            max_output_tokens=96,
+        )
+        cards = self._parse_cards_json(response)
+
+        self._fast_cards_cache[cache_key] = list(cards)
+        self._fast_cards_cache.move_to_end(cache_key)
+        while len(self._fast_cards_cache) > self.FAST_CACHE_SIZE:
+            self._fast_cards_cache.popitem(last=False)
+        return cards
+
     def record_selected_card(
         self,
         user_input: str,
@@ -99,41 +156,6 @@ class RAG:
             selected_card=selected_card,
             question_embedding=interaction_embedding,
         )
-
-    def _query_expansion(self, user_input: str, user_location: str) -> str:
-        """元の質問と場所を維持しつつ、長期記憶検索用の関連語を補う。"""
-        if not user_input.strip():
-            raise ValueError("user_input must not be empty or whitespace only")
-        if not user_location.strip():
-            raise ValueError("user_location must not be empty or whitespace only")
-
-        prompt = f"""
-あなたは、ユーザーの長期記憶をベクトル検索するためのクエリ拡張器です。
-次の質問と現在地から、関連する過去の記録にヒットしそうな日本語の関連語を
-最大5個生成してください。
-
-<question>
-{user_input}
-</question>
-
-<location>
-{user_location}
-</location>
-
-ルール:
-- 質問への回答はしない
-- 現在地を特定の施設種別に決めつけない
-- 行動、出来事、話題、言い換えを中心に補う
-- 具体的な体験、症状、商品、人物、日時を捏造しない
-- 関連語だけを半角スペース区切りで出力する
-- 見出し、番号、説明、引用符、句読点、改行は出力しない
-""".strip()
-
-        expanded_terms = " ".join(self.llm_client.generate(prompt).split())
-        query_parts = [user_input.strip(), user_location.strip()]
-        if expanded_terms:
-            query_parts.append(expanded_terms)
-        return " ".join(query_parts)
 
     def _generate_cards_with_llm(
         self,
@@ -236,20 +258,6 @@ class RAG:
     ) -> list[str]:
         """質問形式ごとに、必ず利用できる安全な基本候補を返す。"""
         if question_type == "yes_no":
-            if "温め" in user_input or "あたため" in user_input:
-                return [
-                    "はいお願いします",
-                    "いいえそのままで",
-                    "少しだけお願いします",
-                    "もう一度お願いします",
-                ]
-            if "袋" in user_input:
-                return [
-                    "はいお願いします",
-                    "いいえ大丈夫です",
-                    "袋を分けてください",
-                    "もう一度お願いします",
-                ]
             return [
                 "はいお願いします",
                 "いいえ大丈夫です",
@@ -315,9 +323,16 @@ class RAG:
         base_cards: list[str],
         generated_cards: list[str],
         previously_selected_cards: list[str],
+        prefer_generated: bool = False,
     ) -> list[str]:
         """履歴・固定候補・LLM候補を優先順位付きで統合する。"""
-        if question_type == "yes_no":
+        if prefer_generated:
+            ordered_cards = (
+                generated_cards
+                + previously_selected_cards
+                + base_cards
+            )
+        elif question_type == "yes_no":
             ordered_cards = (
                 previously_selected_cards
                 + base_cards[:3]
@@ -388,4 +403,12 @@ class RAG:
         """質問と場所をカード選択履歴検索用のベクトルへ変換する。"""
         return self.embedding.embed(
             f"質問: {user_input.strip()} 場所: {user_location.strip()}"
+        )
+
+    def warm_up(self) -> None:
+        """初回リクエストより前にEmbeddingモデルを読み込む。"""
+        self.embedding.embed("質問: 起動確認 場所: 起動確認")
+        self.llm_client.generate(
+            '次のJSONだけを出力してください: {"ok":true}',
+            max_output_tokens=16,
         )

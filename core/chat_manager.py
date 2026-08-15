@@ -27,6 +27,7 @@ class ChatManager:
         user_location_input: str,
         latitude: float = 0.0,
         longitude: float = 0.0,
+        fast: bool = False,
     ) -> list[str]:
         # 短期記憶に会話内容を保存
         self.memory_consolidator.record_short_term_memory(
@@ -45,6 +46,7 @@ class ChatManager:
         return self.rag.generate_rag_response(
             user_input,
             user_location_input,
+            fast=fast,
         )
 
     def record_selected_card(
@@ -65,6 +67,10 @@ class ChatManager:
     def classify_question(self, user_input: str) -> str:
         """質問を発話カードの回答形式に分類する。"""
         return self.rag.classify_question(user_input)
+
+    def warm_up(self) -> None:
+        """APIリクエスト前に遅延ロード対象を初期化する。"""
+        self.rag.warm_up()
 
     def finish_session(self) -> None:
         return
