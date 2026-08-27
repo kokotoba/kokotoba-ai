@@ -7,14 +7,11 @@ from api import app
 
 
 def main() -> None:
-    from llm import LiteRTLMClient
+    from llm import OpenAILLMClient
 
     db_manager = DatabaseManager()
 
-    llm_manager: LLMClient = LiteRTLMClient(
-        "models/gemma-4-E2B-it.litertlm",
-        enable_speculative_decoding=True,
-    )
+    llm_manager: LLMClient = OpenAILLMClient()
 
     try:
         llm_manager.start()
@@ -54,6 +51,7 @@ def main() -> None:
                 user_location_input=user_location_input,
                 shown_cards=cards,
                 selected_card=selected_card,
+                generation_mode="quality",
             )
             print(f"選択を保存しました: {selected_card}")
     finally:

@@ -52,16 +52,6 @@ class RAG:
         question_type = self.classify_question(user_input)
         base_cards = self._base_cards(question_type, user_input)
 
-        interaction_embedding = self._embed_interaction(
-            user_input,
-            user_location,
-        )
-        previously_selected_cards = self.card_selection_history.find_relevant(
-            interaction_embedding,
-            user_location,
-            same_location_only=fast,
-        )
-
         if fast:
             generated_cards = self._generate_fast_cards_with_llm(
                 user_input=user_input,
@@ -71,9 +61,19 @@ class RAG:
                 question_type=question_type,
                 base_cards=base_cards,
                 generated_cards=generated_cards,
-                previously_selected_cards=previously_selected_cards,
+                previously_selected_cards=[],
                 prefer_generated=True,
             )
+
+        interaction_embedding = self._embed_interaction(
+            user_input,
+            user_location,
+        )
+        previously_selected_cards = self.card_selection_history.find_relevant(
+            interaction_embedding,
+            user_location,
+            generation_mode="quality",
+        )
 
         long_term_memory_result = self.long_term_memory_searcher.search(
             interaction_embedding,
@@ -93,6 +93,7 @@ class RAG:
             base_cards=base_cards,
             generated_cards=generated_cards,
             previously_selected_cards=previously_selected_cards,
+            prefer_generated=True,
         )
 
         card_candidates = " ".join(cards)
@@ -143,6 +144,7 @@ class RAG:
         user_location: str,
         shown_cards: list[str],
         selected_card: str,
+        generation_mode: str,
     ) -> None:
         """実際に選択されたカードを次回の候補順位へ反映できるよう保存する。"""
         interaction_embedding = self._embed_interaction(
@@ -155,6 +157,7 @@ class RAG:
             shown_cards=shown_cards,
             selected_card=selected_card,
             question_embedding=interaction_embedding,
+            generation_mode=generation_mode,
         )
 
     def _generate_cards_with_llm(
@@ -200,7 +203,8 @@ class RAG:
 ルール:
 - excluded_base_cardsは別処理で追加するため、絶対に出力しない
 - excluded_base_cardsより具体的で、状況に合った追加候補だけを1〜3個作る
-- 過去に同様の状況で選ばれたカードは有力候補として扱う
+- long_term_memoryに関連情報がある場合は、その具体的な内容を最優先する
+- 過去にqualityで選ばれたカードは、長期記憶と矛盾しない場合だけ参考にする
 - 長期記憶は参考情報であり、現在も同じ状態だと断定しない
 - 関連度が十分な長期記憶に症状、希望、行動が含まれる場合は、その内容を
   ユーザーが選べる候補として1〜2個追加してよい
@@ -214,7 +218,10 @@ class RAG:
 {{"cards":["候補1","候補2","候補3"]}}
 """.strip()
 
-        response = self.llm_client.generate(prompt)
+        response = self.llm_client.generate(
+            prompt,
+            max_output_tokens=160,
+        )
         cards = self._parse_cards_json(response)
         return self._filter_generated_cards(
             cards,
@@ -408,7 +415,3 @@ class RAG:
     def warm_up(self) -> None:
         """初回リクエストより前にEmbeddingモデルを読み込む。"""
         self.embedding.embed("質問: 起動確認 場所: 起動確認")
-        self.llm_client.generate(
-            '次のJSONだけを出力してください: {"ok":true}',
-            max_output_tokens=16,
-        )

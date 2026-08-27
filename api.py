@@ -24,13 +24,10 @@ def create_app(
             yield
             return
 
-        from llm import LiteRTLMClient
+        from llm import OpenAILLMClient
 
         db_manager = DatabaseManager()
-        llm_client = LiteRTLMClient(
-            "models/gemma-4-E2B-it.litertlm",
-            enable_speculative_decoding=True,
-        )
+        llm_client = OpenAILLMClient()
         llm_client.start()
         chat_manager = ChatManager(db_manager, llm_client)
         chat_manager.warm_up()

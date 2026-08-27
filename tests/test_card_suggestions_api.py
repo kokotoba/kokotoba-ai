@@ -59,6 +59,7 @@ class FakeCardSuggestionRepository:
             question=suggestion.question,
             location=suggestion.location,
             question_type=suggestion.question_type,
+            generation_mode=suggestion.generation_mode,
             cards=suggestion.cards,
             created_at=suggestion.created_at,
             selected_card_id=card_id,
@@ -86,6 +87,7 @@ class CardSuggestionsApiTest(unittest.TestCase):
     def test_create_and_select_card(self) -> None:
         suggestion = self._create_suggestion()
         self.assertEqual(suggestion.question_type, "yes_no")
+        self.assertEqual(suggestion.mode, "fast")
         self.assertEqual(len(suggestion.cards), 2)
 
         selected_card = suggestion.cards[0]
@@ -100,6 +102,10 @@ class CardSuggestionsApiTest(unittest.TestCase):
             selected_card,
         )
         self.assertEqual(len(self.chat_manager.selections), 1)
+        self.assertEqual(
+            self.chat_manager.selections[0]["generation_mode"],
+            "fast",
+        )
 
         with self.assertRaises(HTTPException) as conflict_context:
             select_card(

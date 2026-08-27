@@ -58,6 +58,7 @@ class CardResponse(BaseModel):
 class SuggestionResponse(BaseModel):
     id: str
     question_type: Literal["yes_no", "choice", "open"]
+    mode: Literal["fast", "quality"]
     cards: list[CardResponse]
     created_at: str
 
@@ -96,6 +97,7 @@ def _to_response(suggestion: CardSuggestion) -> SuggestionResponse:
     return SuggestionResponse(
         id=suggestion.id,
         question_type=suggestion.question_type,
+        mode=suggestion.generation_mode,
         cards=[
             CardResponse(id=card.id, text=card.text)
             for card in suggestion.cards

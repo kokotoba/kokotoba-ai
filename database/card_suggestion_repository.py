@@ -22,6 +22,7 @@ class CardSuggestion:
     question: str
     location: str
     question_type: str
+    generation_mode: str
     cards: list[SuggestedCard]
     created_at: str
     selected_card_id: str | None = None
@@ -42,14 +43,16 @@ class CardSuggestionRepository:
             conn.execute(
                 """
                 INSERT INTO card_suggestions (
-                    id, question, location, question_type, cards, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s)
+                    id, question, location, question_type, generation_mode,
+                    cards, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     suggestion.id,
                     suggestion.question,
                     suggestion.location,
                     suggestion.question_type,
+                    suggestion.generation_mode,
                     Jsonb(cards_json),
                     suggestion.created_at,
                 ),
@@ -60,8 +63,9 @@ class CardSuggestionRepository:
         with self._db_manager.connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, question, location, question_type, cards,
-                       created_at, selected_card_id, selected_at
+                SELECT id, question, location, question_type,
+                       generation_mode, cards, created_at,
+                       selected_card_id, selected_at
                 FROM card_suggestions
                 WHERE id = %s
                 """,
@@ -80,6 +84,7 @@ class CardSuggestionRepository:
             question=row["question"],
             location=row["location"],
             question_type=row["question_type"],
+            generation_mode=row["generation_mode"],
             cards=cards,
             created_at=self._timestamp(row["created_at"]),
             selected_card_id=row["selected_card_id"],

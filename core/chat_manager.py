@@ -55,6 +55,7 @@ class ChatManager:
         user_location_input: str,
         shown_cards: list[str],
         selected_card: str,
+        generation_mode: str,
     ) -> None:
         """ユーザーが実際に選んだカードを記録する。"""
         self.rag.record_selected_card(
@@ -62,6 +63,7 @@ class ChatManager:
             user_location=user_location_input,
             shown_cards=shown_cards,
             selected_card=selected_card,
+            generation_mode=generation_mode,
         )
 
     def classify_question(self, user_input: str) -> str:

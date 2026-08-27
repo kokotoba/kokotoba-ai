@@ -12,8 +12,13 @@ bash ./up.sh
 
 cd ../kokotoba-ai
 export DATABASE_URL=postgresql://kokotoba:kokotoba_dev_password@localhost:5432/kokotoba
+export OPENAI_API_KEY=sk-...
 poetry run uvicorn api:app
 ```
+
+発話カード生成にはOpenAI Responses APIを利用します。既定モデルは
+`gpt-5.6-luna`です。別モデルを利用する場合は`OPENAI_MODEL`で指定できます。
+APIキーはFlutter側へ含めず、`kokotoba-ai`の環境変数にだけ設定してください。
 
 テーブル定義をサービス側へ追加してはいけません。スキーマ変更は
 `kokotoba-infra/postgres/migrations` に新しい Flyway SQL を追加します。

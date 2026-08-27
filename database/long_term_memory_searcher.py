@@ -38,20 +38,21 @@ class LongTermMemorySearcher:
                 WITH query AS (SELECT %s::vector AS embedding),
                 ranked AS (
                     SELECT
-                        id,
-                        summary,
-                        source_text,
-                        place_name,
-                        speaker,
-                        event_time,
-                        1 - (embedding <=> query.embedding) AS similarity,
+                        memory.id,
+                        memory.summary,
+                        memory.source_text,
+                        memory.place_name,
+                        memory.speaker,
+                        memory.event_time,
+                        1 - (memory.embedding <=> query.embedding) AS similarity,
                         ROW_NUMBER() OVER (
-                            PARTITION BY source_text
-                            ORDER BY embedding <=> query.embedding
+                            PARTITION BY memory.source_text
+                            ORDER BY memory.embedding <=> query.embedding
                         ) AS source_rank
-                    FROM long_term_memory, query
-                    WHERE embedding IS NOT NULL
-                      AND 1 - (embedding <=> query.embedding) >= %s
+                    FROM long_term_memory AS memory
+                    CROSS JOIN query
+                    WHERE memory.embedding IS NOT NULL
+                      AND 1 - (memory.embedding <=> query.embedding) >= %s
                 )
                 SELECT *
                 FROM ranked

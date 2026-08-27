@@ -23,6 +23,7 @@ class CardSelectionHistory:
         shown_cards: list[str],
         selected_card: str,
         question_embedding: np.ndarray,
+        generation_mode: str,
     ) -> None:
         """ユーザーが選択したカードと、そのときの文脈を保存する。"""
         if not question.strip():
@@ -31,6 +32,8 @@ class CardSelectionHistory:
             raise ValueError("location must not be empty or whitespace only")
         if selected_card not in shown_cards:
             raise ValueError("selected_card must be included in shown_cards")
+        if generation_mode not in ("fast", "quality"):
+            raise ValueError("generation_mode must be fast or quality")
 
         embedding = self._db_manager.vector_literal(
             self._validate_embedding(question_embedding)
@@ -44,8 +47,9 @@ class CardSelectionHistory:
                     shown_cards,
                     selected_card,
                     question_embedding,
-                    selected_at
-                ) VALUES (%s, %s, %s, %s, %s::vector, %s)
+                    selected_at,
+                    generation_mode
+                ) VALUES (%s, %s, %s, %s, %s::vector, %s, %s)
                 """,
                 (
                     question,
@@ -54,6 +58,7 @@ class CardSelectionHistory:
                     selected_card,
                     embedding,
                     datetime.now().astimezone(),
+                    generation_mode,
                 ),
             )
             conn.commit()
@@ -62,6 +67,7 @@ class CardSelectionHistory:
         self,
         question_embedding: np.ndarray,
         location: str,
+        generation_mode: str,
         limit: int = 3,
         minimum_similarity: float = 0.85,
         same_location_only: bool = False,
@@ -71,6 +77,8 @@ class CardSelectionHistory:
             raise ValueError("limit must be greater than zero")
         if not -1.0 <= minimum_similarity <= 1.0:
             raise ValueError("minimum_similarity must be between -1.0 and 1.0")
+        if generation_mode not in ("fast", "quality"):
+            raise ValueError("generation_mode must be fast or quality")
 
         query_vector = self._validate_embedding(question_embedding)
         if float(np.linalg.norm(query_vector)) == 0.0:
@@ -87,6 +95,7 @@ class CardSelectionHistory:
                     1 - (question_embedding <=> query.embedding) AS similarity
                 FROM card_selection_history, query
                 WHERE 1 - (question_embedding <=> query.embedding) >= %s
+                  AND generation_mode = %s
                   AND (%s = FALSE OR BTRIM(location) = BTRIM(%s))
                 ORDER BY
                     (BTRIM(location) = BTRIM(%s)) DESC,
@@ -96,6 +105,7 @@ class CardSelectionHistory:
                 (
                     vector,
                     minimum_similarity,
+                    generation_mode,
                     same_location_only,
                     location,
                     location,
