@@ -4,7 +4,7 @@ from typing import Any
 
 from llm.llm_client import LLMClient
 
-__all__ = ["LLMClient", "LiteRTLMClient"]
+__all__ = ["LLMClient", "LiteRTLMClient", "OpenAILLMClient"]
 
 
 def __getattr__(name: str) -> Any:
@@ -13,4 +13,8 @@ def __getattr__(name: str) -> Any:
         from llm.litert_lm_client import LiteRTLMClient
 
         return LiteRTLMClient
+    if name == "OpenAILLMClient":
+        from llm.openai_llm_client import OpenAILLMClient
+
+        return OpenAILLMClient
     raise AttributeError(name)

@@ -214,7 +214,10 @@ class RAG:
 {{"cards":["候補1","候補2","候補3"]}}
 """.strip()
 
-        response = self.llm_client.generate(prompt)
+        response = self.llm_client.generate(
+            prompt,
+            max_output_tokens=160,
+        )
         cards = self._parse_cards_json(response)
         return self._filter_generated_cards(
             cards,
@@ -408,7 +411,3 @@ class RAG:
     def warm_up(self) -> None:
         """初回リクエストより前にEmbeddingモデルを読み込む。"""
         self.embedding.embed("質問: 起動確認 場所: 起動確認")
-        self.llm_client.generate(
-            '次のJSONだけを出力してください: {"ok":true}',
-            max_output_tokens=16,
-        )
