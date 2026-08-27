@@ -51,6 +51,7 @@ def main() -> None:
                 user_location_input=user_location_input,
                 shown_cards=cards,
                 selected_card=selected_card,
+                generation_mode="quality",
             )
             print(f"選択を保存しました: {selected_card}")
     finally:

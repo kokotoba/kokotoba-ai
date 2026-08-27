@@ -62,6 +62,7 @@ class CardSuggestionService:
             question=question,
             location=location,
             question_type=question_type,
+            generation_mode="fast" if fast else "quality",
             cards=[
                 SuggestedCard(id=f"card_{uuid4().hex}", text=text)
                 for text in card_texts
@@ -98,6 +99,7 @@ class CardSuggestionService:
                 user_location_input=suggestion.location,
                 shown_cards=[card.text for card in suggestion.cards],
                 selected_card=selected_card.text,
+                generation_mode=suggestion.generation_mode,
             )
             selected_at = datetime.now(timezone.utc).isoformat()
             self._repository.record_selection(

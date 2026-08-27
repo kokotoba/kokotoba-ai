@@ -21,9 +21,9 @@ class FakeLLMClient:
         return '{"cards":["海へ行きたいです","家で休みたいです","まだ未定です"]}'
 
 
-class FakeEmbedding:
+class FailingEmbedding:
     def embed(self, text: str) -> np.ndarray:
-        return np.array([1.0], dtype=np.float32)
+        raise AssertionError("fast mode must not calculate an embedding")
 
 
 class FakeSelectionHistory:
@@ -31,9 +31,10 @@ class FakeSelectionHistory:
         self,
         question_embedding: np.ndarray,
         location: str,
+        generation_mode: str,
         same_location_only: bool = False,
     ) -> list[str]:
-        return []
+        raise AssertionError("fast mode must not read selection history")
 
 
 class RagFastTest(unittest.TestCase):
@@ -41,7 +42,7 @@ class RagFastTest(unittest.TestCase):
         self.llm = FakeLLMClient()
         self.rag = RAG.__new__(RAG)
         self.rag.llm_client = self.llm
-        self.rag.embedding = FakeEmbedding()
+        self.rag.embedding = FailingEmbedding()
         self.rag.card_selection_history = FakeSelectionHistory()
         self.rag._fast_cards_cache = OrderedDict()
 
