@@ -66,6 +66,17 @@ class OpenAILLMClient(LLMClient):
             options["base_url"] = self._base_url
         self._client = OpenAI(**options)
 
+    def warm_up_connection(self) -> None:
+        """生成を行わず、OpenAI APIへの接続を事前に確立する。"""
+        if self._client is None:
+            raise RuntimeError(
+                "OpenAILLMClient is not started. Call start() before warm-up."
+            )
+
+        # モデル情報の取得は推論トークンを使わず、以降のResponses API呼び出しと
+        # 同じSDKクライアントのHTTP接続プールを温められる。
+        self._client.models.retrieve(self._model)
+
     def generate(
         self,
         prompt: str,

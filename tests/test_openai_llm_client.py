@@ -18,9 +18,19 @@ class FakeResponses:
         return SimpleNamespace(output_text=self.output_text)
 
 
+class FakeModels:
+    def __init__(self) -> None:
+        self.retrieved_model_ids: list[str] = []
+
+    def retrieve(self, model: str) -> SimpleNamespace:
+        self.retrieved_model_ids.append(model)
+        return SimpleNamespace(id=model)
+
+
 class FakeOpenAI:
     def __init__(self, output_text: str) -> None:
         self.responses = FakeResponses(output_text)
+        self.models = FakeModels()
 
 
 class OpenAILLMClientTest(unittest.TestCase):
@@ -54,6 +64,23 @@ class OpenAILLMClientTest(unittest.TestCase):
                 "verbosity": "low",
             },
         )
+
+    def test_warms_up_connection_without_generating(self) -> None:
+        fake_openai = FakeOpenAI("")
+        client = OpenAILLMClient(model="test-model", client=fake_openai)
+
+        client.start()
+        client.warm_up_connection()
+
+        self.assertEqual(fake_openai.models.retrieved_model_ids, ["test-model"])
+        self.assertEqual(fake_openai.responses.requests, [])
+
+    def test_warm_up_requires_started_client(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=True):
+            client = OpenAILLMClient()
+
+        with self.assertRaisesRegex(RuntimeError, "not started"):
+            client.warm_up_connection()
 
     def test_rejects_empty_output(self) -> None:
         client = OpenAILLMClient(client=FakeOpenAI(""))
