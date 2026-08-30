@@ -31,6 +31,7 @@ def create_app(
         llm_client.start()
         chat_manager = ChatManager(db_manager, llm_client)
         chat_manager.warm_up()
+        llm_client.warm_up_connection()
         app.state.card_suggestion_service = CardSuggestionService(
             chat_manager,
             CardSuggestionRepository(db_manager),
